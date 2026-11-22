@@ -1,0 +1,5 @@
+# Generated release and build output
+/iso-staging/
+/chroot/
+ZAOD-OS.iso.sha256
+*.log
