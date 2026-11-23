@@ -81,6 +81,7 @@ rm -f -- "${ROOTFS}/etc/machine-id" "${ROOTFS}/var/lib/dbus/machine-id"
 : > "${ROOTFS}/etc/machine-id"
 rm -rf -- "${ROOTFS}/run/"*
 mkdir -p "${ROOTFS}/run" "${ROOTFS}/dev"
+for public_tree in usr/local etc/xdg etc/lightdm etc/skel opt/zaod-apps opt/zaod-store opt/zaod-optional usr/share/applications usr/share/backgrounds; do find "${ROOTFS}/${public_tree}" -type d -exec chmod 0755 {} + 2>/dev/null || true; done
 
 # Keep essential device nodes in the unmounted live root. Initramfs udev will
 # normally move /dev over, but these nodes make switch_root robust on BIOS/UEFI.

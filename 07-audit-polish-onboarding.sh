@@ -30,6 +30,13 @@ grep -q '^12\.' "${ROOTFS}/etc/debian_version" || die "${ROOTFS} is not Debian 1
 # Users must be able to traverse the operating-system root to launch desktop apps.
 chmod 0755 "${ROOTFS}"
 
+# Codespaces ACLs may drop the execute bit for other users from public paths.
+for public_tree in usr/local etc/xdg etc/lightdm etc/skel opt/zaod-apps opt/zaod-store opt/zaod-optional usr/share/applications usr/share/backgrounds; do
+    if [[ -d "${ROOTFS}/${public_tree}" ]]; then
+        find "${ROOTFS}/${public_tree}" -type d -exec chmod 0755 {} +
+    fi
+done
+
 mkdir -p "${ROOTFS}/dev" "${ROOTFS}/proc" "${ROOTFS}/sys" "${ROOTFS}/dev/pts"
 trap cleanup_mounts EXIT
 mount --bind /dev "${ROOTFS}/dev"
@@ -164,7 +171,8 @@ if chroot "${ROOTFS}" getent passwd zaod >/dev/null 2>&1; then
 fi
 
 printf '%s\n' "Installing ZAOD onboarding wizard..."
-mkdir -p "${ROOTFS}/usr/local/bin" "${ROOTFS}/etc/xdg/autostart" "${ROOTFS}/usr/share/polkit-1/actions"
+mkdir -p "${ROOTFS}/usr/local/bin" "${ROOTFS}/usr/local/libexec" "${ROOTFS}/etc/xdg/autostart" "${ROOTFS}/usr/share/polkit-1/actions"
+install -m 0755 "${SCRIPT_DIR}/assets/zaod-provision-user.py" "${ROOTFS}/usr/local/libexec/zaod-provision-user"
 cat > "${ROOTFS}/usr/local/bin/zaod-onboarding" <<'PYEOF'
 #!/usr/bin/python3
 import gi
@@ -173,6 +181,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 gi.require_version('Gtk', '3.0')
@@ -203,36 +212,31 @@ class Onboarding(Gtk.Window):
         super().__init__(title='Welcome to ZAOD OS')
         self.set_decorated(False)
         self.set_default_size(820, 560)
+        request_path = None
         self.fullscreen()
 
-        css = Gtk.CssProvider()
-        css.load_from_data(b"""
-        window { background: #07111f; color: #edf4fb; }
-        .card { background: rgba(16,36,58,.94); border: 1px solid rgba(114,223,255,.12); border-radius: 12px; padding: 42px; }
-        .title { font-size: 30px; font-weight: bold; }
-        .subtitle { color: #b8c9da; font-size: 14px; }
-        entry { min-height: 38px; border-radius: 6px; border: 1px solid #294864; background: #091726; color: #edf4fb; padding: 8px; }
-        button.primary { min-height: 42px; border-radius: 6px; background: #1688df; color: white; border: 1px solid #319bf0; font-weight: bold; }
-        button.secondary { border-radius: 6px; background: transparent; color: #b8c9da; border: 1px solid #294864; min-height: 38px; }
-        progressbar trough { background: #10243a; border: 1px solid #294864; min-height: 8px; }
+            request_fd, request_path = tempfile.mkstemp(prefix='zaod-account-', dir='/tmp')
+            os.fchmod(request_fd, 0o600)
+            with os.fdopen(request_fd, 'w', encoding='utf-8') as request_file:
+                json.dump({'username': username, 'full_name': full_name, 'password': password}, request_file)
+            result = subprocess.run(
+                ['pkexec', '/usr/local/libexec/zaod-provision-user', request_path],
+                capture_output=True, text=True
+            )
         progressbar progress { background: #1688df; min-height: 8px; }
         """)
-        Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-
-        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
-                               transition_duration=180)
-        self.add(self.stack)
-        self.build_welcome()
-        self.build_account()
-        self.build_finalizing()
-        self.build_ready()
-
     def card(self):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         card.set_valign(Gtk.Align.CENTER)
         card.set_halign(Gtk.Align.CENTER)
         card.set_size_request(620, 390)
         card.get_style_context().add_class('card')
+        finally:
+            password = ''
+            self.password.set_text('')
+            self.confirm.set_text('')
+            if request_path and os.path.exists(request_path):
+                os.unlink(request_path)
         return card
 
     def build_welcome(self):
@@ -325,6 +329,10 @@ class Onboarding(Gtk.Window):
         subtitle = Gtk.Label(label='Your ZAOD OS account is ready.')
         subtitle.get_style_context().add_class('subtitle')
         card.pack_start(subtitle, False, False, 8)
+        developer = Gtk.Button(label='I am a developer: install ZAOD Studio')
+        developer.get_style_context().add_class('secondary')
+        developer.connect('clicked', self.install_studio)
+        card.pack_start(developer, False, False, 8)
         card.pack_end(self.action_row([('Launch Desktop', self.primary, self.launch_desktop)]), False, False, 8)
         self.stack.add_named(card, 'ready')
 
@@ -446,10 +454,20 @@ class Onboarding(Gtk.Window):
         dialog.destroy()
 
     def launch_desktop(self, button):
-        try:
-            os.system('loginctl terminate-session self >/dev/null 2>&1')
-        finally:
-            Gtk.main_quit()
+        Gtk.main_quit()
+        subprocess.Popen(['/usr/bin/xfce4-session-logout', '--logout', '--fast'])
+
+    def install_studio(self, button):
+        dialog = Gtk.MessageDialog(parent=self, flags=Gtk.DialogFlags.MODAL,
+                                   type=Gtk.MessageType.QUESTION,
+                                   buttons=Gtk.ButtonsType.YES_NO,
+                                   text='Install ZAOD Studio?')
+        dialog.format_secondary_text('Studio is an optional developer tool. It adds a package builder to your Apps grid.')
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.YES:
+            subprocess.Popen(['pkexec', '/usr/local/bin/zos-install',
+                              '/opt/zaod-optional/zaod-studio.zos'])
 
 
 if __name__ == '__main__':
@@ -463,6 +481,7 @@ if __name__ == '__main__':
     window.show_all()
     Gtk.main()
 PYEOF
+install -m 0755 "${SCRIPT_DIR}/assets/zaod-onboarding.py" "${ROOTFS}/usr/local/bin/zaod-onboarding"
 chmod 0755 "${ROOTFS}/usr/local/bin/zaod-onboarding"
 
 cat > "${ROOTFS}/etc/xdg/autostart/zaod-onboarding.desktop" <<'EOF'
@@ -486,6 +505,7 @@ cat > "${ROOTFS}/usr/share/polkit-1/actions/com.zaod.onboarding.policy" <<'EOF'
   <action id="com.zaod.onboarding.provision">
     <description>Create the ZAOD OS user account</description>
     <message>Authentication is required to create the first user account.</message>
+        <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/zaod-provision-user</annotate>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>

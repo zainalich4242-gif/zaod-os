@@ -61,13 +61,40 @@ chroot "${ROOTFS}" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -
     network-manager \
     network-manager-gnome \
     pipewire-audio \
+    pulseaudio-utils \
     wireplumber \
+    brightnessctl \
     picom \
     bluez \
     blueman \
     sassc \
     sudo \
     dbus-x11
+
+printf '%s\n' "Installing the ZAOD app grid and quick settings..."
+install -m 0755 "${SCRIPT_DIR}/assets/zaod-launcher.py" "${ROOTFS}/usr/local/bin/zaod-launcher"
+install -m 0755 "${SCRIPT_DIR}/assets/zaod-control-center.py" "${ROOTFS}/usr/local/bin/zaod-control-center"
+mkdir -p "${ROOTFS}/usr/share/applications"
+cat > "${ROOTFS}/usr/share/applications/zaod-launcher.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=ZAOD Apps
+Comment=Browse and launch installed applications
+Exec=/usr/local/bin/zaod-launcher
+Icon=view-app-grid
+Terminal=false
+NoDisplay=true
+EOF
+cat > "${ROOTFS}/usr/share/applications/zaod-control-center.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=ZAOD Quick Settings
+Comment=Network, Bluetooth, sound, brightness, and power
+Exec=/usr/local/bin/zaod-control-center
+Icon=preferences-system
+Terminal=false
+NoDisplay=true
+EOF
 
 THEME_WORK="$(mktemp -d "${ROOTFS}/tmp/zaod-desktop.XXXXXX")"
 mkdir -p "${THEME_WORK}/gtk" "${THEME_WORK}/icons"
@@ -124,13 +151,16 @@ greeter-session=lightdm-gtk-greeter
 EOF
 cat > "${ROOTFS}/etc/lightdm/lightdm-gtk-greeter.conf" <<'EOF'
 [greeter]
-background=/usr/share/backgrounds/zaod-wallpaper.svg
+background=/usr/share/backgrounds/zaod-landscape.jpg
 theme-name=Fluent-Dark
 icon-theme-name=Fluent
 font-name=Sans 10
 EOF
 
 mkdir -p "${ROOTFS}/usr/share/backgrounds"
+curl --fail --location --retry 3 \
+  'https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=2560&q=85' \
+  -o "${ROOTFS}/usr/share/backgrounds/zaod-landscape.jpg"
 cat > "${ROOTFS}/usr/share/backgrounds/zaod-wallpaper.svg" <<'EOF'
 <svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 3840 2160">
   <defs>
@@ -171,7 +201,7 @@ cat > "${XDG_CHANNELS}/xfce4-desktop.xml" <<'EOF'
     <property name="screen0" type="empty">
       <property name="monitor0" type="empty">
         <property name="workspace0" type="empty">
-          <property name="last-image" type="string" value="/usr/share/backgrounds/zaod-wallpaper.svg"/>
+          <property name="last-image" type="string" value="/usr/share/backgrounds/zaod-landscape.jpg"/>
           <property name="image-style" type="int" value="5"/>
         </property>
       </property>
@@ -215,26 +245,31 @@ cat > "${XDG_CHANNELS}/xfce4-panel.xml" <<'EOF'
       <property name="position-locked" type="bool" value="true"/>
       <property name="mode" type="uint" value="0"/>
       <property name="size" type="uint" value="46"/>
+      <property name="background-style" type="uint" value="1"/>
+      <property name="background-color" type="array">
+        <value type="uint" value="242"/>
+        <value type="uint" value="246"/>
+        <value type="uint" value="251"/>
+        <value type="uint" value="226"/>
+      </property>
       <property name="plugin-ids" type="array">
-        <value type="int" value="1"/><value type="int" value="2"/>
-        <value type="int" value="3"/><value type="int" value="4"/>
-        <value type="int" value="5"/><value type="int" value="6"/>
-        <value type="int" value="7"/><value type="int" value="8"/>
-        <value type="int" value="9"/><value type="int" value="10"/>
-        <value type="int" value="11"/><value type="int" value="12"/>
-        <value type="int" value="13"/>
+          <value type="int" value="1"/><value type="int" value="2"/>
+          <value type="int" value="3"/><value type="int" value="4"/>
+          <value type="int" value="5"/><value type="int" value="6"/>
+          <value type="int" value="7"/><value type="int" value="8"/>
+          <value type="int" value="9"/><value type="int" value="10"/>
+          <value type="int" value="11"/><value type="int" value="12"/>
+          <value type="int" value="13"/><value type="int" value="14"/>
       </property>
     </property>
   </property>
   <property name="plugins" type="empty">
-    <property name="plugin-1" type="string" value="separator">
+    <property name="plugin-1" type="string" value="launcher">
+      <property name="items" type="array"><value type="string" value="zaod-launcher.desktop"/></property>
+    </property>
+    <property name="plugin-2" type="string" value="separator">
       <property name="expand" type="bool" value="true"/>
       <property name="style" type="uint" value="0"/>
-    </property>
-    <property name="plugin-2" type="string" value="whiskermenu">
-      <property name="button-title" type="string" value=""/>
-      <property name="button-icon" type="string" value="start-here"/>
-      <property name="show-button-title" type="bool" value="false"/>
     </property>
     <property name="plugin-3" type="string" value="launcher">
       <property name="items" type="array"><value type="string" value="thunar.desktop"/></property>
@@ -261,12 +296,15 @@ cat > "${XDG_CHANNELS}/xfce4-panel.xml" <<'EOF'
       <property name="expand" type="bool" value="true"/>
       <property name="style" type="uint" value="0"/>
     </property>
-    <property name="plugin-10" type="string" value="systray">
+    <property name="plugin-10" type="string" value="launcher">
+      <property name="items" type="array"><value type="string" value="zaod-control-center.desktop"/></property>
+    </property>
+    <property name="plugin-11" type="string" value="systray">
       <property name="size-max" type="uint" value="24"/>
     </property>
-    <property name="plugin-11" type="string" value="pulseaudio"/>
-    <property name="plugin-12" type="string" value="battery"/>
-    <property name="plugin-13" type="string" value="clock">
+    <property name="plugin-12" type="string" value="pulseaudio"/>
+    <property name="plugin-13" type="string" value="battery"/>
+    <property name="plugin-14" type="string" value="clock">
       <property name="digital-format" type="string" value="%H:%M"/>
       <property name="tooltip-format" type="string" value="%A, %d %B %Y"/>
     </property>
