@@ -489,7 +489,7 @@ cat > "${ROOTFS}/etc/xdg/autostart/zaod-onboarding.desktop" <<'EOF'
 Type=Application
 Name=ZAOD First-Boot Setup
 Comment=Create the initial ZAOD OS account
-Exec=/usr/local/bin/zaod-onboarding
+Exec=/bin/true
 OnlyShowIn=XFCE;
 Terminal=false
 X-GNOME-Autostart-enabled=true

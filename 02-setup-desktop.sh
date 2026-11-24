@@ -69,7 +69,44 @@ chroot "${ROOTFS}" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -
     blueman \
     sassc \
     sudo \
+    curl \
     dbus-x11
+
+printf '%s\n' "Installing the Aura desktop shell..."
+mkdir -p "${ROOTFS}/opt/aura-desktop" "${ROOTFS}/usr/share/applications" "${ROOTFS}/etc/xdg/autostart"
+install -m 0644 "${SCRIPT_DIR}/assets/aura-desktop.html" "${ROOTFS}/opt/aura-desktop/index.html"
+install -m 0755 "${SCRIPT_DIR}/assets/aura-server.py" "${ROOTFS}/opt/aura-desktop/server.py"
+cat > "${ROOTFS}/usr/local/bin/zaod-desktop" <<'EOF'
+#!/bin/bash
+set -e
+/usr/bin/python3 /opt/aura-desktop/server.py >/tmp/aura-desktop.log 2>&1 &
+server_pid=$!
+trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+for attempt in $(seq 1 30); do
+    curl -fsS http://127.0.0.1:17632/api/status >/dev/null 2>&1 && break
+    sleep 0.1
+done
+exec /usr/bin/chromium --kiosk --app=http://127.0.0.1:17632/ --process-per-site --disable-gpu-shader-disk-cache --disk-cache-size=33554432 --disable-session-crashed-bubble --no-first-run
+EOF
+chmod 0755 "${ROOTFS}/usr/local/bin/zaod-desktop"
+cat > "${ROOTFS}/usr/share/applications/zaod-desktop.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=ZAOD Desktop
+Comment=ZAOD modular desktop shell
+Exec=/usr/local/bin/zaod-desktop
+Terminal=false
+StartupNotify=false
+EOF
+cat > "${ROOTFS}/etc/xdg/autostart/zaod-desktop.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=ZAOD Desktop
+Exec=/usr/local/bin/zaod-desktop
+OnlyShowIn=XFCE;
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
 
 printf '%s\n' "Installing the ZAOD app grid and quick settings..."
 install -m 0755 "${SCRIPT_DIR}/assets/zaod-launcher.py" "${ROOTFS}/usr/local/bin/zaod-launcher"
@@ -245,6 +282,7 @@ cat > "${XDG_CHANNELS}/xfce4-panel.xml" <<'EOF'
       <property name="position-locked" type="bool" value="true"/>
       <property name="mode" type="uint" value="0"/>
       <property name="size" type="uint" value="46"/>
+    <property name="autohide-behavior" type="uint" value="2"/>
       <property name="background-style" type="uint" value="1"/>
       <property name="background-color" type="array">
         <value type="uint" value="242"/>
